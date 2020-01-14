@@ -12,6 +12,7 @@
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/nav_sat_fix.hpp>
 #include <sensor_msgs/msg/imu.hpp>
+#include <sensor_msgs/msg/magnetic_field.hpp>
 #include <tf2/LinearMath/Quaternion.h>
 #include <tf2/convert.h>
 #include <geometry_msgs/msg/quaternion.hpp>
@@ -19,6 +20,7 @@
 gps_spitter::gps_spitter(QObject *parent, std::shared_ptr<rclcpp::Node> node)
     : QObject(parent)
 {
+    node_ = node;
     source = QGeoPositionInfoSource::createDefaultSource(this);
     if (source) {
         qWarning() << "minimum update interval is " << source->minimumUpdateInterval();
@@ -29,26 +31,72 @@ gps_spitter::gps_spitter(QObject *parent, std::shared_ptr<rclcpp::Node> node)
     }
     gps_pub_ = node->create_publisher<sensor_msgs::msg::NavSatFix>("gps/data", rclcpp::SensorDataQoS());
     imu_pub_ = node->create_publisher<sensor_msgs::msg::Imu>("imu/data", rclcpp::SensorDataQoS());
+    mag_pub_ = node->create_publisher<sensor_msgs::msg::MagneticField>("imu/mag_data", rclcpp::SensorDataQoS());
 
     timer = new QTimer(this);
     //20 millisecond interval
     accelerometer = new QAccelerometer(this);
     gyro = new QGyroscope(this);
     compass = new QCompass(this);
+    mag = new QMagnetometer(this);
 
     accelerometer->start();
     gyro->start();
     compass->start();
 
-    timer->callOnTimeout(std::bind(&gps_spitter::imu_cb, this) );
-    timer->setInterval(20);
+    mag->setReturnGeoValues(true);
+    mag->start();
+
+    /*
+     *
+     * The magnetometer can report on either raw magnetic flux values or geomagnetic flux values.
+     *  By default it returns raw magnetic flux values. The QMagnetometer::returnGeoValues property
+     * must be set to return geomagnetic flux values.
+        The primary difference between raw and geomagnetic values is that extra processing
+        is done to eliminate local magnetic interference from the geomagnetic values so they represent
+        only the effect of the Earth's magnetic field. This process is not perfect and the accuracy of each reading may change.
+    */
+
+    timer->callOnTimeout(std::bind(&gps_spitter::timer_cb, this) );
+    timer->setInterval(500);
     timer->start();
-    qDebug() << "available sensors are: " << QSensor::sensorTypes();
     qDebug() << "accel hz rate: " << accelerometer->availableDataRates();
     qDebug() << "gyro hz rate: " << gyro->availableDataRates();
     qDebug() << "compass hz rate: " << compass->availableDataRates();
+    qDebug() << "magnetometer hz rate: " << mag->availableDataRates();
+    qDebug() << "available sensors are: " << QSensor::sensorTypes();
 
 }
+
+void gps_spitter::mag_cb()
+{
+
+    auto mag_reading = mag->reading();
+    if(!mag_reading)
+    {
+        qWarning() << " no mag reading ";
+    }
+    if(mag_reading->calibrationLevel() < .3)
+    {
+        qWarning() << " mag cal value is bad: " << mag_reading->calibrationLevel();
+    }
+    sensor_msgs::msg::MagneticField mf_msg;
+    auto now = node_->now();
+    mf_msg.header.set__stamp(now);
+    mf_msg.header.frame_id = "base_link";
+    mf_msg.magnetic_field.x = mag_reading->x();
+    mf_msg.magnetic_field.y = mag_reading->y();
+    mf_msg.magnetic_field.z = mag_reading->z();
+    mag_pub_->publish(mf_msg);
+}
+
+void gps_spitter::timer_cb()
+{
+    imu_cb();
+    mag_cb();
+}
+
+
 
 void gps_spitter::imu_cb()
 {
@@ -58,56 +106,69 @@ void gps_spitter::imu_cb()
     auto accel_reading = accelerometer->reading();
     auto gyro_reading = gyro->reading();
     auto compass_reading = compass->reading();
-    if(!accel_reading)
+    if(accel_reading)
+    {
+
+        imu_msg.linear_acceleration.x = accel_reading->x();
+        imu_msg.linear_acceleration.y = accel_reading->y();
+        imu_msg.linear_acceleration.z = accel_reading->z();
+        imu_msg.linear_acceleration_covariance[0] = .01967;
+        imu_msg.linear_acceleration_covariance[4] = .02223;
+        imu_msg.linear_acceleration_covariance[8] = .061114;
+    }
+    else
     {
         qWarning() << "no accel reading";
-        return;
+
+        imu_msg.linear_acceleration_covariance[0] = -1;
+        imu_msg.linear_acceleration_covariance[4] = -1;
+        imu_msg.linear_acceleration_covariance[8] = -1;
     }
-    if(!gyro_reading)
+    if(gyro_reading)
     {
+
+        imu_msg.angular_velocity.x = gyro_reading->x()/180.0 * M_PI;
+        imu_msg.angular_velocity.y = gyro_reading->y()/180.0 * M_PI;
+        imu_msg.angular_velocity.z = gyro_reading->z()/180.0 * M_PI;
+
+        imu_msg.angular_velocity_covariance[0] = .00018;
+        imu_msg.angular_velocity_covariance[4] = .00014641;
+        imu_msg.angular_velocity_covariance[8] = .00007569;
+    }
+    else
+    {
+        imu_msg.angular_velocity_covariance[0] = -1;
+        imu_msg.angular_velocity_covariance[4] = -1;
+        imu_msg.angular_velocity_covariance[8] = -1;
         qWarning() << "no gyro reading";
         return;
     }
-    if(!compass_reading)
+    if(compass_reading)
     {
+        tf2::Quaternion myQuaternion;
+        myQuaternion.setRPY(0, 0, compass_reading->azimuth()/180.0 * M_PI);
+        myQuaternion.normalize();
+
+        imu_msg.orientation.x = myQuaternion.getX();
+        imu_msg.orientation.y = myQuaternion.getY();
+        imu_msg.orientation.z = myQuaternion.getZ();
+        imu_msg.orientation.w = myQuaternion.getW();
+
+        imu_msg.orientation_covariance[8] = (1.1 - compass_reading->calibrationLevel() ) * .27387;
+
+    }
+    else{
+        imu_msg.orientation_covariance[8] = -1;
         qWarning() << "no compass reading";
         return;
     }
 
 
-    auto now = QDateTime::currentDateTime();
     imu_msg.header.frame_id = "base_link";
-    imu_msg.header.stamp.sec = now.currentSecsSinceEpoch();
-    auto ns = (now.currentMSecsSinceEpoch() - now.currentSecsSinceEpoch()*1000)*1e6;
-    imu_msg.header.stamp.nanosec = ns;
 
-    imu_msg.linear_acceleration.x = accel_reading->x();
-    imu_msg.linear_acceleration.y = accel_reading->y();
-    imu_msg.linear_acceleration.z = accel_reading->z();
+    auto now = node_->now();
+    imu_msg.header.set__stamp(now);
 
-    imu_msg.angular_velocity.x = gyro_reading->x()/180.0 * M_PI;
-    imu_msg.angular_velocity.y = gyro_reading->y()/180.0 * M_PI;
-    imu_msg.angular_velocity.z = gyro_reading->z()/180.0 * M_PI;
-
-    tf2::Quaternion myQuaternion;
-    myQuaternion.setRPY(0, 0, compass_reading->azimuth()/180.0 * M_PI);
-    myQuaternion.normalize();
-
-    imu_msg.orientation.x = myQuaternion.getX();
-    imu_msg.orientation.y = myQuaternion.getY();
-    imu_msg.orientation.z = myQuaternion.getZ();
-    imu_msg.orientation.w = myQuaternion.getW();
-
-    imu_msg.linear_acceleration_covariance[0] = .01967;
-    imu_msg.linear_acceleration_covariance[4] = .02223;
-    imu_msg.linear_acceleration_covariance[8] = .061114;
-
-    imu_msg.angular_velocity_covariance[0] = .00018;
-    imu_msg.angular_velocity_covariance[4] = .00014641;
-    imu_msg.angular_velocity_covariance[8] = .00007569;
-
-
-    imu_msg.orientation_covariance[8] = (1.1 - compass_reading->calibrationLevel() ) * .27387;
     imu_pub_->publish(imu_msg);
 
 /*
