@@ -83,7 +83,7 @@ void gps_spitter::mag_cb()
     sensor_msgs::msg::MagneticField mf_msg;
     auto now = node_->now();
     mf_msg.header.set__stamp(now);
-    mf_msg.header.frame_id = "base_link";
+    mf_msg.header.frame_id = "mag_link";
     mf_msg.magnetic_field.x = mag_reading->x();
     mf_msg.magnetic_field.y = mag_reading->y();
     mf_msg.magnetic_field.z = mag_reading->z();
@@ -141,7 +141,6 @@ void gps_spitter::imu_cb()
         imu_msg.angular_velocity_covariance[4] = -1;
         imu_msg.angular_velocity_covariance[8] = -1;
         qWarning() << "no gyro reading";
-        return;
     }
     if(compass_reading)
     {

@@ -47,7 +47,7 @@ private:
 };
 
 
-#include "gps_spitter.moc"
+//#include "moc_gps_spitter.cpp"
 
 
 #endif // GPS_SPITTER_H
