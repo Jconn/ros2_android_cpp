@@ -1,0 +1,4 @@
+2020-01-10 14:07:54 INFO     hit exception
+2020-01-10 14:07:54 INFO     stat x has std_dev: 4.7591604387157274e-07
+2020-01-10 14:07:54 INFO     stat y has std_dev: 5.815894007032133e-07
+2020-01-10 14:07:54 INFO     stat z has std_dev: 5.43154078383037e-07

@@ -1,27 +1,35 @@
-cmake_minimum_required(VERSION 3.8)
+cmake_minimum_required(VERSION 3.5)
 
-project(ros_sensors_qt512_ndk19 LANGUAGES CXX)
+project(ros_sensors_qt512_ndk19)
 
 set(CMAKE_INCLUDE_CURRENT_DIR ON)
 
 #set_target_properties(${PROJECT_NAME} PROPERTIES AUTOMOC TRUE)
 
-set(CMAKE_AUTOUIC ON)
-set(CMAKE_AUTOMOC ON)
-set(CMAKE_AUTORCC ON)
 
 set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+#set(CMAKE_PREFIX_PATH $ENV{AMENT_PREFIX_PATH})
 set(BUILD_SHARED_LIBS OFF)
+ADD_DEFINITIONS(-DBUILD_VERSION="${BUILD_VERSION}")
 
-find_package(Qt5 COMPONENTS Core Quick Positioning Sensors REQUIRED)
-find_package(rclcpp REQUIRED)
+set( $ENV{CMAKE_PREFIX_PATH} $ENV{AMENT_PREFIX_PATH})
+#message("cmake path is $ENV{CMAKE_PREFIX_PATH}")
+
+set(CMAKE_PREFIX_PATH $ENV{CMAKE_PREFIX_PATH})
+
 find_package(std_msgs REQUIRED)
 find_package(builtin_interfaces REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(fastrtps_cmake_module REQUIRED)
 find_package(fastrtps REQUIRED CONFIG)
 find_package(tf2 REQUIRED)
+find_package(rclcpp REQUIRED)
+find_package(Qt5 COMPONENTS Core Quick Sensors Positioning REQUIRED)
+
+set(CMAKE_AUTOUIC ON)
+set(CMAKE_AUTOMOC ON)
+set(CMAKE_AUTORCC ON)
 
 include_directories(
     include/
@@ -66,10 +74,9 @@ ament_export_dependencies(rclcpp builtin_interfaces std_msgs)
 ament_export_libraries(
   ${PROJECT_NAME})
 
-ament_package()
-file(GLOB_RECURSE
-    MY_ANDROID_LIBS_LIST
-    /home/johnconn/external_storage/ros2_core_android_ws/install/device/*.so)
+#file(GLOB_RECURSE
+#    MY_ANDROID_LIBS_LIST
+#    /home/johnconn/external_storage/ros2_core_android_ws/install/device/*.so)
 message("glob recurse setting to: ")
 
 foreach(OPT ${MY_ANDROID_LIBS_LIST})
@@ -100,3 +107,4 @@ message("${MY_ANDROID_STRING}")
 
 #    endif()
 #endif()
+ament_package()
